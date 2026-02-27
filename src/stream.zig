@@ -102,7 +102,11 @@ const TLSStream = struct {
             }
             openssl.SSL_free(ssl);
         }
-        posix.close(self.socket);
+        const f: std.Io.File = .{
+            .handle = self.socket,
+            .flags = .{ .nonblocking = false },
+        };
+        f.close(self.io);
     }
 
     pub fn writeAll(self: *Stream, data: []const u8) !void {
@@ -161,7 +165,11 @@ const PlainStream = struct {
     }
 
     pub fn close(self: *const PlainStream) void {
-        posix.close(self.socket);
+        const f: std.Io.File = .{
+            .handle = self.socket,
+            .flags = .{ .nonblocking = false },
+        };
+        f.close(self.io);
     }
 
     pub fn writeAll(self: *const PlainStream, data: []const u8) !void {

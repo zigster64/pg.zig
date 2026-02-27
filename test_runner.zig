@@ -162,12 +162,14 @@ const SlowTracker = struct {
     slowest: SlowestQueue,
     start_time: std.Io.Timestamp,
     lap_time: std.Io.Timestamp,
+    allocator: Allocator,
 
     fn init(allocator: Allocator, count: u32) SlowTracker {
         const now = std.Io.Clock.awake.now(std.testing.io);
-        var slowest = SlowestQueue.init(allocator, {});
-        slowest.ensureTotalCapacity(count) catch @panic("OOM");
+        var slowest = SlowestQueue.initContext({});
+        slowest.ensureTotalCapacity(allocator, count) catch @panic("OOM");
         return .{
+            .allocator = allocator,
             .max = count,
             .start_time = now,
             .lap_time = now,
@@ -181,7 +183,7 @@ const SlowTracker = struct {
     };
 
     fn deinit(self: SlowTracker) void {
-        self.slowest.deinit();
+        self.slowest.deinit(self.allocator);
     }
 
     fn startTiming(self: *SlowTracker) void {
@@ -200,7 +202,7 @@ const SlowTracker = struct {
         if (slowest.count() < self.max) {
             // Capacity is fixed to the # of slow tests we want to track
             // If we've tracked fewer tests than this capacity, than always add
-            slowest.add(TestInfo{ .ns = ns, .name = test_name }) catch @panic("failed to track test timing");
+            slowest.push(self.allocator, TestInfo{ .ns = ns, .name = test_name }) catch @panic("failed to track test timing");
             return ns;
         }
 
@@ -215,8 +217,8 @@ const SlowTracker = struct {
         }
 
         // the previous fastest of our slow tests, has been pushed off.
-        _ = slowest.removeMin();
-        slowest.add(TestInfo{ .ns = ns, .name = test_name }) catch @panic("failed to track test timing");
+        _ = slowest.popMin();
+        slowest.push(self.allocator, TestInfo{ .ns = ns, .name = test_name }) catch @panic("failed to track test timing");
         return ns;
     }
 
@@ -224,7 +226,7 @@ const SlowTracker = struct {
         var slowest = self.slowest;
         const count = slowest.count();
         Printer.fmt("Slowest {d} test{s}: \n", .{ count, if (count != 1) "s" else "" });
-        while (slowest.removeMinOrNull()) |info| {
+        while (slowest.popMin()) |info| {
             const ms = @as(f64, @floatFromInt(info.ns)) / 1_000_000.0;
             Printer.fmt("  {d:.2}ms\t{s}\n", .{ ms, info.name });
         }
